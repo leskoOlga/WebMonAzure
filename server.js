@@ -1,14 +1,81 @@
-var express =require('express');
-var app = express();
-var port=process.env.PORT || 80;
+/**
+ * Module dependencies.
+ */
 
-app.use(express.static(__dirname + '/public'));
+var express = require('express')
+  , stylus = require('stylus')
+  , nib = require('nib')
+  , sio = require('socket.io');
+ var port = process.env.PORT || 3000;   ;
 
+/**
+ * App.
+ */
 
-app.get('/',function(req,res){
-console.log('hello from server');
- res.render('./public/index.html');
+var app = express.createServer();
+
+/**
+ * App configuration.
+ */
+
+app.configure(function () {
+  app.use(stylus.middleware({ src: __dirname + '/public', compile: compile }));
+  app.use(express.static(__dirname + '/public'));
+  app.set('views', __dirname);
+  app.set('view engine', 'jade');
+
+  function compile (str, path) {
+    return stylus(str)
+      .set('filename', path)
+      .use(nib());
+  };
 });
 
-app.listen(port);
-console.log('Server Listening at port'+port);
+/**
+ * App routes.
+ */
+
+app.get('/', function (req, res) {
+  res.render('index', { layout: false });
+});
+
+/**
+ * App listen.
+ */
+
+app.listen(port, function () {  //Updated
+  var addr = app.address();
+  console.log('   app listening on http://' +port);
+});;
+
+/**
+ * Socket.IO server (single process only)
+ */
+
+var io = sio.listen(app)
+  , nicknames = {};
+
+io.sockets.on('connection', function (socket) {
+  socket.on('user message', function (msg) {
+    socket.broadcast.emit('user message', socket.nickname, msg);
+  });
+
+  socket.on('nickname', function (nick, fn) {
+    if (nicknames[nick]) {
+      fn(true);
+    } else {
+      fn(false);
+      nicknames[nick] = socket.nickname = nick;
+      socket.broadcast.emit('announcement', nick + ' connected');
+      io.sockets.emit('nicknames', nicknames);
+    }
+  });
+
+  socket.on('disconnect', function () {
+    if (!socket.nickname) return;
+
+    delete nicknames[socket.nickname];
+    socket.broadcast.emit('announcement', socket.nickname + ' disconnected');
+    socket.broadcast.emit('nicknames', nicknames);
+  });
+});
